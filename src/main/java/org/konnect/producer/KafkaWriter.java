@@ -5,9 +5,11 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.konnect.utils.Resources;
 import org.konnect.utils.Utils;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -20,16 +22,29 @@ public final class KafkaWriter {
 
     public static void main(String[] args) throws IOException {
         // usage: KafkaWriter $configFile
+        Properties props = new Properties();
         if (args.length < 1) {
-            System.err.println("Usage: KafkaWriter /path/to/config/file.properties");
-            System.exit(1);
+            System.out.println("""
+                Usage: KafkaWriter /path/to/config/file.properties
+                  Reading `resources/kafkaWriter.properties` instead""");
+
+            String s = Resources.readFromClasspath("kafkaWriter.properties");
+            byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+            props.load(new ByteArrayInputStream(bytes));
+        } else {
+            Path path = Paths.get(args[0]);
+            props.load(Files.newInputStream(path));
         }
 
-        startWithPropsFile(args[0]);
+        start(props);
     }
 
-    public static void startWithPropsFile(String absolutePath) throws IOException {
-        Properties properties = readFromFile(absolutePath);
+    ///  Start writing to Kafka.
+    ///
+    /// Parameter `absolutePath` refers to writer properties file - it includes:
+    ///   - path to input `*.jsonl` file
+    ///   - Kafka producer properties (`linger.ms`, `batch.size`, `acks`, etc.)
+    private static void start(Properties properties) throws IOException {
         String inputFile = getInputFile(properties);
 
         StringSerializer serializer = new StringSerializer();
@@ -56,30 +71,25 @@ public final class KafkaWriter {
             Time taken: %s%n""", linesRead, callback.count, Utils.formatTime(timeTaken));
     }
 
-    private static Properties readFromFile(String absolutePath) throws IOException {
-        Properties properties = new Properties();
-        byte[] bytes = Files.readAllBytes(Paths.get(absolutePath));
-        ByteArrayInputStream is = new ByteArrayInputStream(bytes);
-        properties.load(is);
-        return properties;
-    }
-
     private static String getInputFile(Properties properties) {
         String inputFile = properties.getProperty(inputFileKey);
+        Path input;
         if (inputFile == null) {
-            System.err.println("Property '" + inputFileKey + "' is not found - exiting ...");
-            System.exit(1);
+            System.out.println("Property '" + inputFileKey + "' is not found - reading `stream.jsonl`");
+            input = Resources.fileInProjectRoot("stream.jsonl");
+        } else {
+            input = Paths.get(inputFile);
         }
 
-        Path input = Paths.get(inputFile);
         boolean fileExists = Files.exists(input) && Files.isRegularFile(input);
         if (!fileExists) {
             System.err.println("Expected regular file to read from - got:" + inputFile);
             System.exit(1);
         }
 
-        System.out.println("To load records from: " + inputFile);
-        return inputFile;
+        String result = input.toFile().getAbsolutePath();
+        System.out.println("To load records from: " + result);
+        return result;
     }
 
     private static final class CountingCallback implements Callback {
