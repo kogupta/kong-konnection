@@ -1,4 +1,4 @@
-package org.konnect.producer;
+package org.konnect;
 
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -8,7 +8,9 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.konnect.utils.Resources;
 import org.konnect.utils.Utils;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
