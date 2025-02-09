@@ -5,6 +5,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.konnect.utils.Utils;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -20,7 +21,7 @@ public final class KafkaWriter {
     public static void main(String[] args) throws IOException {
         // usage: KafkaWriter $configFile
         if (args.length < 1) {
-            System.err.println("Usage: java --enable-preview org.konnect.producer.KafkaWriter /path/to/config/file");
+            System.err.println("Usage: KafkaWriter /path/to/config/file.properties");
             System.exit(1);
         }
 
@@ -37,6 +38,7 @@ public final class KafkaWriter {
         int linesRead = 0;
         CountingCallback callback = new CountingCallback();
 
+        long start = System.nanoTime();
         try (RandomAccessFile raf = new RandomAccessFile(inputFile, "r");
              KafkaProducer<String, String> producer = new KafkaProducer<>(properties, serializer, serializer)) {
 
@@ -47,7 +49,11 @@ public final class KafkaWriter {
             }
         }
 
-        System.out.println("Lines read from file: " + linesRead + ", messages written to Kafka: " + callback.count);
+        long timeTaken = System.nanoTime() - start;
+        System.out.printf("""
+            Lines read from file: %d
+            Messages written to Kafka: %d
+            Time taken: %s%n""", linesRead, callback.count, Utils.formatTime(timeTaken));
     }
 
     private static Properties readFromFile(String absolutePath) throws IOException {
@@ -88,26 +94,4 @@ public final class KafkaWriter {
             }
         }
     }
-
-    public static String readLine(RandomAccessFile raf, StringBuilder buffer) throws IOException {
-        int c = -1;
-        boolean eol = false;
-
-        while (!eol) {
-            switch (c = raf.read()) {
-                case -1, '\n' -> eol = true;
-                case '\r'     -> {
-                    eol = true;
-                    long cur = raf.getFilePointer();
-                    if ((raf.read()) != '\n') {
-                        raf.seek(cur);
-                    }
-                }
-                default -> buffer.append((char) c);
-            }
-        }
-
-        return c == -1 && buffer.isEmpty() ? null : buffer.toString();
-    }
-
 }
