@@ -8,10 +8,8 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.konnect.utils.Resources;
 import org.konnect.utils.Utils;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -24,21 +22,15 @@ public final class KafkaWriter {
 
     public static void main(String[] args) throws IOException {
         // usage: KafkaWriter $configFile
-        Properties props = new Properties();
-        if (args.length < 1) {
-            System.out.println("""
-                Usage: KafkaWriter /path/to/config/file.properties
-                  Reading `resources/kafkaWriter.properties` instead""");
-
-            String s = Resources.readFromClasspath("kafkaWriter.properties");
-            byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-            props.load(new ByteArrayInputStream(bytes));
-        } else {
-            Path path = Paths.get(args[0]);
-            props.load(Files.newInputStream(path));
-        }
-
+        Properties props = args.length < 1 ? loadFromClasspath() : Utils.loadPropsOrExit(args[0]);
         start(props);
+    }
+
+    private static Properties loadFromClasspath() {
+        System.out.println("""
+            Usage: KafkaWriter /path/to/config/file.properties
+                Reading `resources/kafkaWriter.properties` instead""");
+        return Resources.loadFromClasspath("kafkaWriter.properties");
     }
 
     ///  Start writing to Kafka.

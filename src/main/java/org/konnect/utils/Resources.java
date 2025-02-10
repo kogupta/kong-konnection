@@ -1,9 +1,6 @@
 package org.konnect.utils;
 
-import java.io.CharArrayReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
+import java.io.*;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,6 +29,19 @@ public final class Resources {
         return Paths.get(root, s);
     }
 
+    public static Properties loadFromClasspath(String propertyFileName) {
+        Properties props = new Properties();
+        String s = Resources.readFromClasspath(propertyFileName);
+        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+        try {
+            props.load(new ByteArrayInputStream(bytes));
+            return props;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    // ---- simple tests ----
     public static void main() throws IOException {
         testReadingClasspathFile();
         testReadingProjectDirFile();

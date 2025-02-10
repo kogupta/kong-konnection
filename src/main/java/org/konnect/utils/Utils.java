@@ -1,10 +1,14 @@
 package org.konnect.utils;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Locale;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.concurrent.TimeUnit.*;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 public final class Utils {
     private Utils() {}
@@ -37,4 +41,18 @@ public final class Utils {
         };
     }
 
+    public static Properties loadPropsOrExit(String filePath) throws IOException {
+        Path path = Paths.get(filePath);
+        boolean fileExists = Files.exists(path) && Files.isRegularFile(path);
+        if (!fileExists) {
+            String s = path.toFile().getAbsolutePath();
+            String err = !Files.exists(path) ? "Non-existent file: " + s : "Not a regular file: " + s;
+            System.err.println(err);
+            System.exit(1);
+        }
+
+        Properties props = new Properties();
+        props.load(Files.newInputStream(path));
+        return props;
+    }
 }
