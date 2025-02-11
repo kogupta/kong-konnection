@@ -1,5 +1,8 @@
 package org.konnect.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 import static java.util.concurrent.TimeUnit.*;
 
 public final class Utils {
+    private static final Logger logger = LoggerFactory.getLogger(Utils.class);
+
     private Utils() {}
 
     // extracted from guava stopwatch
@@ -47,7 +52,7 @@ public final class Utils {
         if (!fileExists) {
             String s = path.toFile().getAbsolutePath();
             String err = !Files.exists(path) ? "Non-existent file: " + s : "Not a regular file: " + s;
-            System.err.println(err);
+            logger.error(err);
             System.exit(1);
         }
 

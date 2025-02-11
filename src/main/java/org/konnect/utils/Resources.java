@@ -51,7 +51,7 @@ public final class Resources {
         Path path = fileInProjectRoot("stream.jsonl");
         try (Stream<String> lines = Files.lines(path)) {
             int rows = lines.mapToInt(_ -> 1).sum();
-            assertThat(rows == 809, "809 rows expected, got:" + rows);
+            assertThat(rows == 726, "726 rows expected, got:" + rows);
         }
     }
 
