@@ -23,7 +23,8 @@
     from [Kafka UI](http://localhost:8080/ui/clusters/local/all-topics?perPage=25)
   - write to Opensearch: `mvn exec:java -Dexec.mainClass="org.konnect.ESWriter"`
 
-    Verify using `curl localhost:9200/cdc/_search | less` or from [Opensearch dashboard](http://localhost:5601)
+    Verify using `curl localhost:9200/cdc/_search | less` or
+    from [Opensearch dashboard](http://localhost:5601/app/opensearch_index_management_dashboards#/index-detail/cdc)
 
 - teardown using `docker compose down`
 
