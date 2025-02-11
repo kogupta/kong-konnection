@@ -75,8 +75,9 @@ can work with files which are much larger than memory.
 - batched writes: messages are written in LZ4 compressed batches - a `batch.size` of 32kb is used (instead of default
   16kb).
 - why lz4: multiple compression methods are supported by Kafka - but I believe lz4 is most suitable for current
-  workloads.![img.png](kafkaMessageCompression.png)
+  workloads.![img.png](kafkaMessageCompression.png)  
   Reference: [Message compression in Apache Kafka](https://developer.ibm.com/articles/benefits-compression-kafka-messaging/)  
+
   LZ4 has lowest latency and least CPU usage - as of this writing, we have effectively infinite disk capacity thanks to
   cloud object storage; data center networks are ~10 GBps or more; but CPU is limited - CPU is the current bottleneck.  
   Because of this, lz4 is favoured over other compression schemes.
@@ -114,7 +115,7 @@ this: [Indexing raw JSON data](https://www.elastic.co/guide/en/elasticsearch/cli
 ##### Viable alternative: Druid for text search?
 
 - Druid supports rudimentary text search in
-  columns: [search queries](https://druid.apache.org/docs/latest/querying/searchquery/)
+  columns: [search queries](https://druid.apache.org/docs/latest/querying/searchquery/)  
   At Conviva, we used `contains` and `regex` a lot; `regex` turned out to be fairly expensive and users would abuse it
   as well - so restricted use of `regex`
 - Druid segment format can be extended to support
