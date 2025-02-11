@@ -9,14 +9,12 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.konnect.utils.Resources;
 import org.konnect.utils.Utils;
+import org.opensearch.client.json.JsonpDeserializable;
 import org.opensearch.client.json.jackson.JacksonJsonpMapper;
 import org.opensearch.client.opensearch.OpenSearchClient;
-import org.opensearch.client.opensearch._types.Refresh;
 import org.opensearch.client.opensearch.core.BulkRequest;
 import org.opensearch.client.opensearch.core.BulkResponse;
-import org.opensearch.client.opensearch.core.bulk.BulkOperation;
 import org.opensearch.client.opensearch.core.bulk.BulkResponseItem;
-import org.opensearch.client.opensearch.core.bulk.IndexOperation;
 import org.opensearch.client.transport.httpclient5.ApacheHttpClient5Transport;
 import org.opensearch.client.transport.httpclient5.ApacheHttpClient5TransportBuilder;
 import org.slf4j.Logger;
@@ -24,6 +22,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -142,7 +141,20 @@ public final class ESWriter {
             BulkRequest bulkRequest = createBulkReq(lines, indexName);
             try {
                 BulkResponse bulkResponse = client.bulk(bulkRequest);
+
+                // ⚠ extremely janky "error" handling 🤮
+                // - not proper by any stretch of imagination
+                // - but opensearch java api docs are abject/awful - so dont know any better
                 List<String> failedDocs = new ArrayList<>(lines.size());
+
+                if (bulkResponse.errors()) {
+                    logger.error("Indexer#bulkRequest: bulk request has errors");
+                    for (BulkResponseItem item : bulkResponse.items()) {
+                        if (item.error() != null) {
+                            logger.error(item.error().toJsonString());
+                        }
+                    }
+                }
 
                 List<BulkResponseItem> items = bulkResponse.items();
                 for (int i = 0; i < items.size(); i++) {
@@ -158,21 +170,18 @@ public final class ESWriter {
             }
         }
 
-        private static BulkRequest createBulkReq(List<String> lines, String indexName) {
-            List<BulkOperation> ops = new ArrayList<>(lines.size());
+        private BulkRequest createBulkReq(List<String> lines, String indexName) {
+            BulkRequest.Builder br = new BulkRequest.Builder();
 
             for (String line : lines) {
-                ops.add(
-                    new BulkOperation.Builder().index(
-                        IndexOperation.of(builder -> builder.document(line))
-                    ).build());
+                JsonBinary data = JsonBinary.of(line);
+
+                br.operations(
+                    op -> op.index(
+                        idx -> idx.index(indexName).document(data)));
             }
 
-            BulkRequest.Builder bulkReq = new BulkRequest.Builder()
-                                              .index(indexName)
-                                              .operations(ops)
-                                              .refresh(Refresh.WaitFor);
-            return bulkReq.build();
+            return br.build();
         }
 
         private static OpenSearchClient createClient(Properties props) throws URISyntaxException {
@@ -214,5 +223,14 @@ public final class ESWriter {
                 Reading `resources/esWriter.properties` instead""");
 
         return Resources.loadFromClasspath("esWriter.properties");
+    }
+
+    // Nowhere is it mentioned in opensearch docs what to do in case of json strings!
+    // details obtained from elastic docs
+    @JsonpDeserializable
+    record JsonBinary(byte[] bytes, String contentType) {
+        public static JsonBinary of(String json) {
+            return new JsonBinary(json.getBytes(StandardCharsets.UTF_8), "application/json");
+        }
     }
 }
