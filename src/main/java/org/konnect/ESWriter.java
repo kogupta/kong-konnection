@@ -85,7 +85,7 @@ public final class ESWriter {
 
             List<String> lines = new ArrayList<>();
             while (run) {
-                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(1));
 
                 lines.clear();
 
@@ -93,7 +93,9 @@ public final class ESWriter {
                     lines.add(record.value());
                 }
 
-                msgConsumer.accept(lines);
+                logger.info("KConsumer#run: fetched {} lines", lines.size());
+                if (!lines.isEmpty())
+                    msgConsumer.accept(lines);
             }
 
             latch.countDown();
@@ -129,7 +131,7 @@ public final class ESWriter {
                 }
 
                 retryAttempts++;
-                logger.info("Indexer#accept: indexed {} lines, retry attempt {}",
+                logger.warn("Indexer#accept: indexed {} lines, retry attempt {}",
                     lines.size() - failedDocs.size(), retryAttempts);
                 lines = failedDocs;
                 Utils.uncheckedSleep(delay.getDelay(retryAttempts));
