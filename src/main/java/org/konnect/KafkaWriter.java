@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class KafkaWriter {
     private static final Logger logger = LoggerFactory.getLogger(KafkaWriter.class);
@@ -65,7 +66,7 @@ public final class KafkaWriter {
         logger.info("""
             Lines read from file: {}
             Messages written to Kafka: {}
-            Time taken: {}""", linesRead, callback.count, Utils.formatTime(timeTaken));
+            Time taken: {}""", linesRead, callback.count.get(), Utils.formatTime(timeTaken));
     }
 
     private static String getInputFile(Properties properties) {
@@ -90,14 +91,14 @@ public final class KafkaWriter {
     }
 
     private static final class CountingCallback implements Callback {
-        int count;
+        AtomicInteger count = new AtomicInteger(0);
 
         @Override
         public void onCompletion(RecordMetadata metadata, Exception e) {
             if (e != null) {
                 System.err.println("error encountered: " + e.getMessage());
             } else {
-                count++;
+                count.incrementAndGet();
             }
         }
     }

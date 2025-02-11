@@ -77,7 +77,6 @@ public final class ESWriter {
             run = true;
         }
 
-
         @Override
         public void run() {
             Thread.currentThread().setName("kafka -> es");
@@ -142,9 +141,8 @@ public final class ESWriter {
             try {
                 BulkResponse bulkResponse = client.bulk(bulkRequest);
 
-                // ⚠ extremely janky "error" handling 🤮
+                // rudimentary "error" handling 🤮
                 // - not proper by any stretch of imagination
-                // - but opensearch java api docs are abject/awful - so dont know any better
                 List<String> failedDocs = new ArrayList<>(lines.size());
 
                 if (bulkResponse.errors()) {
@@ -187,7 +185,8 @@ public final class ESWriter {
         private static OpenSearchClient createClient(Properties props) throws URISyntaxException {
             HttpHost[] result = parseHosts(props);
 
-            ApacheHttpClient5Transport transport = ApacheHttpClient5TransportBuilder.builder(result)
+            ApacheHttpClient5Transport transport = ApacheHttpClient5TransportBuilder
+                                                       .builder(result)
                                                        .setMapper(new JacksonJsonpMapper())
                                                        .build();
             return new OpenSearchClient(transport);
@@ -225,8 +224,6 @@ public final class ESWriter {
         return Resources.loadFromClasspath("esWriter.properties");
     }
 
-    // Nowhere is it mentioned in opensearch docs what to do in case of json strings!
-    // details obtained from elastic docs
     @JsonpDeserializable
     record JsonBinary(byte[] bytes, String contentType) {
         public static JsonBinary of(String json) {
