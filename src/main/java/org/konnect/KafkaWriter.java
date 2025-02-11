@@ -7,6 +7,8 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.konnect.utils.Resources;
 import org.konnect.utils.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -16,6 +18,7 @@ import java.nio.file.Paths;
 import java.util.Properties;
 
 public final class KafkaWriter {
+    private static final Logger logger = LoggerFactory.getLogger(KafkaWriter.class);
     private static final String inputFileKey = "inputFile";
 
     private KafkaWriter() {}
@@ -27,7 +30,7 @@ public final class KafkaWriter {
     }
 
     private static Properties loadFromClasspath() {
-        System.out.println("""
+        logger.warn("""
             Usage: KafkaWriter /path/to/config/file.properties
                 Reading `resources/kafkaWriter.properties` instead""");
         return Resources.loadFromClasspath("kafkaWriter.properties");
@@ -59,17 +62,17 @@ public final class KafkaWriter {
         }
 
         long timeTaken = System.nanoTime() - start;
-        System.out.printf("""
-            Lines read from file: %d
-            Messages written to Kafka: %d
-            Time taken: %s%n""", linesRead, callback.count, Utils.formatTime(timeTaken));
+        logger.info("""
+            Lines read from file: {}
+            Messages written to Kafka: {}
+            Time taken: {}""", linesRead, callback.count, Utils.formatTime(timeTaken));
     }
 
     private static String getInputFile(Properties properties) {
         String inputFile = properties.getProperty(inputFileKey);
         Path input;
         if (inputFile == null) {
-            System.out.println("Property '" + inputFileKey + "' is not found - reading `stream.jsonl`");
+            logger.warn("Property '{}' is not found - reading `stream.jsonl`", inputFileKey);
             input = Resources.fileInProjectRoot("stream.jsonl");
         } else {
             input = Paths.get(inputFile);
@@ -77,12 +80,12 @@ public final class KafkaWriter {
 
         boolean fileExists = Files.exists(input) && Files.isRegularFile(input);
         if (!fileExists) {
-            System.err.println("Expected regular file to read from - got:" + inputFile);
+            logger.error("Expected regular file to read from - got: {}", inputFile);
             System.exit(1);
         }
 
         String result = input.toFile().getAbsolutePath();
-        System.out.println("To load records from: " + result);
+        logger.info("To load records from: {}", result);
         return result;
     }
 

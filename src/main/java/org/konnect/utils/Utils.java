@@ -55,4 +55,10 @@ public final class Utils {
         props.load(Files.newInputStream(path));
         return props;
     }
+
+    public static void uncheckedSleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignore) {}
+    }
 }

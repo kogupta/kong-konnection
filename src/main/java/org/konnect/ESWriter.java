@@ -19,6 +19,8 @@ import org.opensearch.client.opensearch.core.bulk.BulkResponseItem;
 import org.opensearch.client.opensearch.core.bulk.IndexOperation;
 import org.opensearch.client.transport.httpclient5.ApacheHttpClient5Transport;
 import org.opensearch.client.transport.httpclient5.ApacheHttpClient5TransportBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -26,85 +28,186 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 
 public final class ESWriter {
+    private static final Logger logger = LoggerFactory.getLogger(ESWriter.class);
+
     private ESWriter() {}
 
-    public static void main(String[] args) throws IOException, URISyntaxException {
+    public static void main(String[] args) throws IOException, URISyntaxException, InterruptedException {
         // usage: ESWriter $configFile
 
         Properties props = args.length < 1 ? loadFromClasspath() : Utils.loadPropsOrExit(args[0]);
 
-        OpenSearchClient client = createClient(props);
         String indexName = props.getProperty("index", "cdc");
-
-        StringDeserializer strDeserializer = new StringDeserializer();
-        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props, strDeserializer, strDeserializer);
+        Indexer indexer = new Indexer(props, indexName);
 
         String topic = props.getProperty("topic", "cdc-events");
-        consumer.subscribe(List.of(topic));
+        CountDownLatch latch = new CountDownLatch(1);
+        KConsumer kConsumer = new KConsumer(latch, props, topic, indexer);
 
-        List<String> lines = new ArrayList<>();
-        while (true) {
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
-            for (ConsumerRecord<String, String> record : records) {
-                lines.add(record.value());
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            executor.submit(kConsumer);
+            latch.await();
+        }
+    }
+
+    private static final class KConsumer implements Runnable {
+        private final KafkaConsumer<String, String> consumer;
+        private final CountDownLatch latch;
+        private final Consumer<List<String>> msgConsumer;
+
+        private volatile boolean run;
+
+        KConsumer(CountDownLatch latch,
+                  Properties props,
+                  String topic,
+                  Consumer<List<String>> msgConsumer) {
+            this.latch = latch;
+            this.msgConsumer = msgConsumer;
+
+            StringDeserializer strDeserializer = new StringDeserializer();
+            consumer = new KafkaConsumer<>(props, strDeserializer, strDeserializer);
+            consumer.subscribe(List.of(topic));
+
+            run = true;
+        }
+
+
+        @Override
+        public void run() {
+            Thread.currentThread().setName("kafka -> es");
+
+            List<String> lines = new ArrayList<>();
+            while (run) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
+
+                lines.clear();
+
+                for (ConsumerRecord<String, String> record : records) {
+                    lines.add(record.value());
+                }
+
+                msgConsumer.accept(lines);
             }
 
-            esBulkIndex(lines, indexName, client);
+            latch.countDown();
+        }
+
+        public void stop() {
+            run = false;
         }
     }
 
-    private static void esBulkIndex(List<String> lines, String indexName, OpenSearchClient client) throws IOException {
-        BulkRequest bulkRequest = createBulkReq(lines, indexName);
-        BulkResponse bulkResponse = client.bulk(bulkRequest);
+    private static final class Indexer implements Consumer<List<String>> {
+        private static final int maxRetries = 5;
 
-        for (BulkResponseItem responseItem : bulkResponse.items()) {
-            if (responseItem.status() == HttpStatus.SC_TOO_MANY_REQUESTS) {
+        private final String indexName;
+        private final OpenSearchClient client;
+        private final ExponentialTimeDelay delay;
 
+        Indexer(Properties props, String indexName) throws URISyntaxException {
+            this.indexName = indexName;
+            this.client = createClient(props);
+            delay = new ExponentialTimeDelay();
+        }
+
+        @Override
+        public void accept(List<String> lines) {
+            int retryAttempts = 0;
+
+            while (retryAttempts <= maxRetries) {
+                List<String> failedDocs = bulkRequest(lines);
+                if (failedDocs.isEmpty()) {
+                    logger.info("Indexer#accept: indexed {} lines", lines.size());
+                    return;
+                }
+
+                retryAttempts++;
+                logger.info("Indexer#accept: indexed {} lines, retry attempt {}",
+                    lines.size() - failedDocs.size(), retryAttempts);
+                lines = failedDocs;
+                Utils.uncheckedSleep(delay.getDelay(retryAttempts));
             }
         }
-    }
 
-    private static BulkRequest createBulkReq(List<String> lines, String indexName) {
-        List<BulkOperation> ops = new ArrayList<>(lines.size());
+        private List<String> bulkRequest(List<String> lines) {
+            BulkRequest bulkRequest = createBulkReq(lines, indexName);
+            try {
+                BulkResponse bulkResponse = client.bulk(bulkRequest);
+                List<String> failedDocs = new ArrayList<>(lines.size());
 
-        for (String line : lines) {
-            ops.add(
-                new BulkOperation.Builder().index(
-                    IndexOperation.of(builder -> builder.document(line))
-                ).build());
+                List<BulkResponseItem> items = bulkResponse.items();
+                for (int i = 0; i < items.size(); i++) {
+                    BulkResponseItem responseItem = items.get(i);
+                    if (responseItem.status() == HttpStatus.SC_TOO_MANY_REQUESTS) {
+                        failedDocs.add(lines.get(i));
+                    }
+                }
+                return failedDocs;
+            } catch (IOException e) {
+                logger.error("Indexer#accept: error while indexing", e);
+                return lines;
+            }
         }
 
-        BulkRequest.Builder bulkReq = new BulkRequest.Builder()
-                                          .index(indexName)
-                                          .operations(ops)
-                                          .refresh(Refresh.WaitFor);
-        return bulkReq.build();
-    }
+        private static BulkRequest createBulkReq(List<String> lines, String indexName) {
+            List<BulkOperation> ops = new ArrayList<>(lines.size());
 
-    private static OpenSearchClient createClient(Properties props) throws URISyntaxException {
-        HttpHost[] result = parseHosts(props);
+            for (String line : lines) {
+                ops.add(
+                    new BulkOperation.Builder().index(
+                        IndexOperation.of(builder -> builder.document(line))
+                    ).build());
+            }
 
-        ApacheHttpClient5Transport transport = ApacheHttpClient5TransportBuilder.builder(result)
-                                                   .setMapper(new JacksonJsonpMapper())
-                                                   .build();
-        OpenSearchClient client = new OpenSearchClient(transport);
-        return client;
-    }
-
-    private static HttpHost[] parseHosts(Properties props) throws URISyntaxException {
-        String s = props.getProperty("hosts", "http://localhost:9200");
-        String[] split = s.split(",");
-        HttpHost[] result = new HttpHost[split.length];
-        for (int i = 0; i < split.length; i++) {
-            result[i] = HttpHost.create(split[i]);
+            BulkRequest.Builder bulkReq = new BulkRequest.Builder()
+                                              .index(indexName)
+                                              .operations(ops)
+                                              .refresh(Refresh.WaitFor);
+            return bulkReq.build();
         }
-        return result;
+
+        private static OpenSearchClient createClient(Properties props) throws URISyntaxException {
+            HttpHost[] result = parseHosts(props);
+
+            ApacheHttpClient5Transport transport = ApacheHttpClient5TransportBuilder.builder(result)
+                                                       .setMapper(new JacksonJsonpMapper())
+                                                       .build();
+            return new OpenSearchClient(transport);
+        }
+
+        private static HttpHost[] parseHosts(Properties props) throws URISyntaxException {
+            String s = props.getProperty("hosts", "http://localhost:9200");
+            String[] split = s.split(",");
+            HttpHost[] result = new HttpHost[split.length];
+            for (int i = 0; i < split.length; i++) {
+                result[i] = HttpHost.create(split[i]);
+            }
+            return result;
+        }
+    }
+
+    private static final class ExponentialTimeDelay {
+        private static final int base = 2;
+        private static final long maxBackOffTime = 30_000;  // 30 seconds
+
+        private final ThreadLocalRandom rand = ThreadLocalRandom.current();
+
+        public long getDelay(int noAttempts) {
+            double pow = Math.pow(base, noAttempts);
+            int extraDelay = rand.nextInt(1000);
+            return (long) Math.min(pow * 1000 + extraDelay, maxBackOffTime);
+        }
     }
 
     private static Properties loadFromClasspath() {
-        System.out.println("""
+        logger.warn("""
             Usage: ESWriter /path/to/config/file.properties
                 Reading `resources/esWriter.properties` instead""");
 
