@@ -41,28 +41,31 @@ External dependencies used:
 
 #### File reader
 
-Uses `RandomAccessFile#readline` to stream through input file - it does not load the entire file in memory. Hence, it
+Uses `RandomAccessFile#readLine` to stream through input file - it does not load the entire file in memory. Hence, it
 can work with files which are much larger than memory.
 
 ##### Possible improvements
 
 - **mmap + chunked reading in parallel**: if file is large, then it can be chunked into multiple parts, memory map each
-  chunk, then read the chunks in parallel from different threads. For the current problem, the given file is tiny and
-  hence these steps were not attempted. Multi-threading overhead and complexity is justified when file is really large (
-  example - check [1BRC solutions](https://questdb.com/blog/billion-row-challenge-step-by-step/) - it involves
-  aggregating 1 billion rows, every solution involves mmap and multi-threaded processing).
-- **batched reading + object reuse + better API**: If I understand correctly, `RandomAccessFile#readline` reads a byte
-  at a time - reading in batch (say, 8k at a time) would be more efficient; also it internally uses a new
-  `StringBuilder` instance for each invocation - this is extremely wasteful 😭; it can enable reuse with better API, as
-  suggested:
+  chunk, then read the chunks in parallel from different threads.  
+  For the current problem, the given file is tiny and hence these steps were not attempted.  
+  Multi-threading overhead and complexity is justified when file is really large ( example - check [1BRC solutions](https://questdb.com/blog/billion-row-challenge-step-by-step/) - it involves aggregating 1 billion rows, every solution involves mmap and multi-threaded processing).
+- **batched reading + object reuse + better API**: if I understand correctly, `RandomAccessFile#readLine` reads a byte
+  at a time - reading in batch (say, 8k at a time) would be more efficient;  
+  also, it internally uses a new `StringBuilder` instance for each invocation - this is extremely wasteful 😭;  
+  it can enable reuse with better API, as suggested:
   ```java
   // client code
   var buffer = new ByteArrayBuilder();    // similar semantics to StringBuilder
   var raf = new RandomAccessFile("/path/to/file", "r");
   
   while(predicate) {
-      buffer.setLength(0);  // reset the buffer
-      raf.readLineInto(buffer);
+      // reset the buffer
+      buffer.setLength(0);  // or, buffer.reset()
+
+      // mutate the buffer and expand as required - semantics similar to StringBuilder
+      raf.readLineInto(buffer); 
+
       process(buffer, /*offset*/ 0, /*length*/ buffer.length);
   }
 
