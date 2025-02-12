@@ -83,6 +83,7 @@ public final class ESWriter {
 
             List<String> lines = new ArrayList<>();
             while (run) {
+                // WARNING: uncaught exceptions galore!
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(1));
 
                 lines.clear();
@@ -99,6 +100,7 @@ public final class ESWriter {
             latch.countDown();
         }
 
+        // no invocations of this - application is terminated by `Ctrl-C` in terminal
         public void stop() {
             run = false;
         }

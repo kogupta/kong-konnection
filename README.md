@@ -26,7 +26,8 @@
     Verify using `curl localhost:9200/cdc/_search | less` or
     from [Opensearch dashboard](http://localhost:5601/app/opensearch_index_management_dashboards#/index-detail/cdc)
 
-- teardown using `docker compose down`
+- teardown using `docker compose down`  
+  For my local version of docker, `docker-compose` is not available 🤷
 
 ### External dependencies
 
@@ -103,21 +104,24 @@ can work with files which are much larger than memory.
 
 #### Kafka Consumer
 
-- monitoring: Kafka exposes a LOT of [consumer metrics](https://kafka.apache.org/documentation/#consumer_monitoring)
-- since dealing with only 1 partition, no rebalance logic were implemented
+Consumer is implemented as a single threaded executor; single-threaded executor re-allocates thread if the underlying is killed by uncaught exceptions (ie, a bug); no such quality-of-life improvements in case of raw threads. 
+
+- monitoring: Kafka exposes a LOT of [consumer metrics](https://kafka.apache.org/documentation/#consumer_monitoring); they are inputs to configuring the consumer
+- in a realistic production environment, typically partition count for a topic increases (partition count can be reduced only with Kafka redeployment!) -- how do we scale the consumers in a group is an ongoing tradeoff; do we scale horizontally (add more consumer instances to the group) or vertically (beefier instances for existing consumers, more threads per consumer, etc.)
+- since dealing with only 1 partition, no rebalance logic were implemented; but in a realistic environment, `ConsumerRebalanceListener`s are a must
+- for simplicity of solution, I went ahead with defaults; but, a production env requires understanding tradeoffs related to async/sync offset commits, auto/manual offset commit
 
 #### Opensearch
 
 Using bulk indexing to increase indexing performance.  
-Opensearch docs are - sorry to say - awful; many details are missing; had to dig into elasticsearch docs.  
-Example: opensearch bulk code fragments dont work for json data - had to use
-this: [Indexing raw JSON data](https://www.elastic.co/guide/en/elasticsearch/client/java-api-client/current/indexing-bulk.html#indexing-raw-json-data)
+
+Opensearch docs are lagging behind Elastic docs in quality/detail; even Opensearch support queries point to Elasticsearch docs.  
+
+Example: opensearch bulk code fragments dont work for json data - had to use this: [Indexing raw JSON data](https://www.elastic.co/guide/en/elasticsearch/client/java-api-client/current/indexing-bulk.html#indexing-raw-json-data)
 
 ##### Viable alternative: Druid for text search?
 
 - Druid supports rudimentary text search in
   columns: [search queries](https://druid.apache.org/docs/latest/querying/searchquery/)  
-  At Conviva, we used `contains` and `regex` a lot; `regex` turned out to be fairly expensive and users would abuse it
-  as well - so restricted use of `regex`
-- Druid segment format can be extended to support
-  full [Lucene based text-search](https://www.slideshare.net/slideshow/druid-meetup-5th/81262812) 
+  At Conviva, we used `contains`, `insensitive_contains` and `regex` a lot; `regex` turned out to be fairly expensive and users would abuse it as well - so restricted use of `regex` to ease operations; 
+- As is widely known, Druids are [shape-shifters](https://history.stackexchange.com/questions/47841/when-did-druids-become-widely-accepted-as-shapeshifters); so it is no surprise that Druid segment format can be extended/shape-shifted to support full [Lucene based text-search](https://www.slideshare.net/slideshow/druid-meetup-5th/81262812) 
